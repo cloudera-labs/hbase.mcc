@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Map.Entry;
 
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.log4j.Logger;
 
@@ -37,17 +38,22 @@ public class HConnectionManagerMultiClusterWrapper {
             .getStringCollection(ConfigConst.HBASE_FAILOVER_CLUSTERS_CONFIG);
 
     if (failoverClusters.size() == 0) {
-      LOG.info(" -- Getting a signle cluster connection !!");
+      LOG.info(" -- Getting a single cluster connection !!");
+      if ("kerberos".equalsIgnoreCase(conf.get("hbase.security.authentication"))) {
+        conf.set("hadoop.security.authentication", "Kerberos");
+        UserGroupInformation.setConfiguration(conf);
+      }
       return HConnectionManager.createConnection(conf);
-    } else {
-
-      Map<String, Configuration> configMap = HBaseMultiClusterConfigUtil
-          .splitMultiConfigFile(conf);
-
+    } else { 
+      Map<String, Configuration> configMap = HBaseMultiClusterConfigUtil.splitMultiConfigFile(conf);
       LOG.info(" -- Getting primary Connction");
-      HConnection primaryConnection = HConnectionManager
-          .createConnection(configMap
-              .get(HBaseMultiClusterConfigUtil.PRIMARY_NAME));
+      Configuration priConfig = configMap.get(HBaseMultiClusterConfigUtil.PRIMARY_NAME);
+      if ("kerberos".equalsIgnoreCase(conf.get("hbase.security.authentication"))) {
+        conf.set("hadoop.security.authentication", "Kerberos");
+        UserGroupInformation.setConfiguration(priConfig);
+      }
+
+      HConnection primaryConnection = HConnectionManager.createConnection(priConfig);
       LOG.info(" --- Got primary Connction");
 
       ArrayList<HConnection> failoverConnections = new ArrayList<HConnection>();
@@ -55,8 +61,12 @@ public class HConnectionManagerMultiClusterWrapper {
       for (Entry<String, Configuration> entry : configMap.entrySet()) {
         if (!entry.getKey().equals(HBaseMultiClusterConfigUtil.PRIMARY_NAME)) {
           LOG.info(" -- Getting failure Connction");
-          failoverConnections.add(HConnectionManager.createConnection(entry
-              .getValue()));
+          Configuration secConfig = entry.getValue();
+          if ("kerberos".equalsIgnoreCase(conf.get("hbase.security.authentication"))) {
+            conf.set("hadoop.security.authentication", "Kerberos");
+            UserGroupInformation.setConfiguration(secConfig);
+          }
+          failoverConnections.add(HConnectionManager.createConnection(secConfig));
           LOG.info(" --- Got failover Connction");
         }
       }
